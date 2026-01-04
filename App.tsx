@@ -27,13 +27,15 @@ import ImageFilterSelector from './components/ImageFilterSelector';
 import MusicSelector from './components/MusicSelector';
 import { VIDEO_PROMPT_IDEAS, IMAGE_PROMPT_IDEAS } from './constants';
 
-// FIX: Declare global window properties for aistudio API interaction
+// FIX: Declare global window properties for aistudio API interaction using the expected AIStudio interface
 declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
   interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
+    aistudio: AIStudio;
   }
 }
 
