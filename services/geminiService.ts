@@ -63,10 +63,11 @@ const addWatermarkToImage = (base64Url: string): Promise<string> => {
   });
 };
 
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
+// FIX: Initializing GoogleGenAI inside each function call to use the most recent API key per guidelines
 export const generateVideo = async (prompt: string, imageFile: File | undefined, aspectRatio: AspectRatio, quality: Quality): Promise<string> => {
+    // Create ai client locally within function to follow API key usage guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     let image;
     if (imageFile) {
         const base64EncodedData = await new Promise<string>((resolve) => {
@@ -80,7 +81,7 @@ export const generateVideo = async (prompt: string, imageFile: File | undefined,
         };
     }
     
-    // FIX: Updated model name to 'veo-3.1-fast-generate-preview' and configuration to use 'resolution' instead of 'quality'
+    // Using recommended model for high-quality video generation
     let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
         prompt,
@@ -103,6 +104,7 @@ export const generateVideo = async (prompt: string, imageFile: File | undefined,
         throw new Error("Video generation failed: No download link found.");
     }
 
+    // Append API key when fetching from the download link per guidelines
     const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     if (!response.ok) {
         throw new Error(`Failed to download video: ${response.statusText}`);
@@ -113,7 +115,10 @@ export const generateVideo = async (prompt: string, imageFile: File | undefined,
 };
 
 export const generateImage = async (prompt: string, aspectRatio: AspectRatio, quality: Quality): Promise<string[]> => {
-    // FIX: Switched to gemini-2.5-flash-image and generateContent for image generation as per latest guidelines
+    // Initialize GoogleGenAI locally within function
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    // Using gemini-2.5-flash-image which supports generating content including images
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts: [{ text: prompt }] },
@@ -125,10 +130,11 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio, qu
     });
 
     if (!response.candidates?.[0]?.content?.parts) {
-        throw new Error("Image generation failed: No candidates or parts returned from the model.");
+        throw new Error("Image generation failed: No content parts returned from the model.");
     }
     
     const imageUrls: string[] = [];
+    // Iterate through all parts to find the image part per guidelines
     for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
             const base64ImageBytes: string = part.inlineData.data;
@@ -138,30 +144,34 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio, qu
     }
 
     if (imageUrls.length === 0) {
-        throw new Error("Image generation failed: No image parts found in model response.");
+        throw new Error("Image generation failed: The model returned text but no image data.");
     }
 
     return imageUrls;
 };
 
 export const editImage = async (prompt: string, imageFile: File): Promise<string> => {
+    // Initialize GoogleGenAI locally within function
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const imagePart = await fileToGenerativePart(imageFile);
     const textPart = { text: prompt };
 
-    // FIX: Updated model name to 'gemini-2.5-flash-image' and removed deprecated responseModalities
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts: [imagePart, textPart] },
     });
 
+    // Find the image part in response candidates
     const imageOutputPart = response.candidates?.[0]?.content?.parts?.find(part => part.inlineData);
 
     if (!imageOutputPart?.inlineData) {
+        // Use .text property to extract textual response if image generation failed
         const textResponse = response.text?.trim();
         if (textResponse) {
              throw new Error(`Image editing failed: ${textResponse}`);
         }
-        throw new Error("Image editing failed: The model did not return an image.");
+        throw new Error("Image editing failed: The model did not return an edited image.");
     }
 
     const base64ImageBytes: string = imageOutputPart.inlineData.data;
@@ -173,17 +183,17 @@ export const editImage = async (prompt: string, imageFile: File): Promise<string
 };
 
 export const editVideo = async (prompt: string, videoFile: File): Promise<string> => {
-    // NOTE: The current generation of models (e.g., Veo) does not support video-to-video editing.
-    // This is a placeholder function to demonstrate where the API call would go.
-    // We will simulate a delay and then throw an informative error.
+    // Placeholder for future capabilities
     await new Promise(resolve => setTimeout(resolve, 1000));
-    throw new Error("Video editing functionality is not yet supported by the available AI models. This feature is for demonstration purposes.");
+    throw new Error("Video editing is currently not supported. This feature is a placeholder for future model capabilities.");
 };
 
 const CHAT_SYSTEM_INSTRUCTION = "You are AI-CI, an expert creative assistant. Your goal is to help users brainstorm and refine ideas for video and photo content. Provide creative, inspiring, and actionable suggestions.";
 
 export const startChatSession = (): Chat => {
-    // FIX: Updated model to 'gemini-3-flash-preview' for chat/brainstorming tasks
+    // Initialize GoogleGenAI locally within function
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const chat = ai.chats.create({
         model: 'gemini-3-flash-preview',
         config: {
@@ -193,12 +203,13 @@ export const startChatSession = (): Chat => {
     return chat;
 };
 
+// FIX: sendMessageStream accepts message parameter as string or Part[]
 export const sendMessageToChatStream = async (chat: Chat, message: string, file?: File) => {
-    const parts: Part[] = [{ text: message }];
     if (file) {
         const imagePart = await fileToGenerativePart(file);
-        parts.push(imagePart);
+        const textPart = { text: message };
+        // Construct message as an array of parts if an image is attached
+        return chat.sendMessageStream({ message: [textPart, imagePart] });
     }
-    // FIX: Correctly using named parameter 'message' for sendMessageStream with Part array
-    return chat.sendMessageStream({ message: parts });
+    return chat.sendMessageStream({ message });
 };

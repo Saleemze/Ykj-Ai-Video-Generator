@@ -27,6 +27,16 @@ import ImageFilterSelector from './components/ImageFilterSelector';
 import MusicSelector from './components/MusicSelector';
 import { VIDEO_PROMPT_IDEAS, IMAGE_PROMPT_IDEAS } from './constants';
 
+// FIX: Declare global window properties for aistudio API interaction
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
+
 const MainApp: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>(Tab.Video);
     const [prompt, setPrompt] = useState<string>('');
@@ -53,6 +63,9 @@ const MainApp: React.FC = () => {
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
     const [imageStyle, setImageStyle] = useState<string>('None');
     const [quality, setQuality] = useState<Quality>('Standard');
+    
+    // FIX: State to track if an API key has been explicitly selected by the user
+    const [hasSelectedKey, setHasSelectedKey] = useState<boolean>(true);
 
     // Chat state
     const [chatSession, setChatSession] = useState<Chat | null>(null);
@@ -62,6 +75,21 @@ const MainApp: React.FC = () => {
     const [chatAttachmentPreview, setChatAttachmentPreview] = useState<string | null>(null);
     const chatInitialized = useRef(false);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
+
+    // FIX: Verify API key selection status on component mount per guidelines
+    useEffect(() => {
+        const checkKey = async () => {
+            const hasKey = await window.aistudio.hasSelectedApiKey();
+            setHasSelectedKey(hasKey);
+        };
+        checkKey();
+    }, []);
+
+    const handleSelectKey = async () => {
+        await window.aistudio.openSelectKey();
+        // Assume selection successful after dialog trigger to avoid race condition per guidelines
+        setHasSelectedKey(true); 
+    };
 
     useEffect(() => {
         if (activeTab === Tab.AIChat && !chatInitialized.current) {
@@ -143,6 +171,14 @@ const MainApp: React.FC = () => {
     
     const handleGenerate = useCallback(async () => {
         if (!prompt.trim() || loading) return;
+
+        // FIX: Ensure API key is selected before attempting generation with Veo models
+        if (activeTab === Tab.Video || activeTab === Tab.ImageToVideo) {
+            if (!(await window.aistudio.hasSelectedApiKey())) {
+                await handleSelectKey();
+            }
+        }
+
         if (activeTab === Tab.ImageToVideo && !imageToVideoFile) {
             setError("Please upload an image to generate a video.");
             return;
@@ -200,7 +236,13 @@ const MainApp: React.FC = () => {
             }
         } catch (e: any) {
             console.error(e);
-            setError(`An error occurred: ${e.message}`);
+            // FIX: Reset key selection state and prompt user if API key error occurs per guidelines
+            if (e.message?.includes("Requested entity was not found")) {
+                setHasSelectedKey(false);
+                setError("Your API key may have expired or is invalid. Please re-select your key.");
+            } else {
+                setError(`An error occurred: ${e.message}`);
+            }
         } finally {
             setLoading(false);
             setLoadingMessage(null);
@@ -278,6 +320,7 @@ const MainApp: React.FC = () => {
             setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
     
             for await (const chunk of stream) {
+                // Access .text property directly per guidelines
                 modelResponse += chunk.text;
                 setChatHistory(prev => {
                     const newHistory = [...prev];
@@ -338,6 +381,45 @@ const MainApp: React.FC = () => {
         : activeTab === Tab.EditImage
         ? 'e.g., Add a golden crown to the person'
         : 'e.g., Change the season to winter, add cinematic effect';
+
+    // FIX: Render mandatory API key selection screen for Veo generation tabs per guidelines
+    if (!hasSelectedKey && (activeTab === Tab.Video || activeTab === Tab.ImageToVideo)) {
+        return (
+            <div className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center p-12 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-2xl text-center">
+                <div className="h-16 w-16 bg-purple-500/20 rounded-full flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-white mb-4">API Key Required</h2>
+                <p className="text-slate-400 text-lg mb-8 max-w-md">
+                    To use high-quality video generation, you must select a paid Google Cloud project API key.
+                </p>
+                <div className="flex flex-col gap-4 w-full sm:w-auto">
+                    <button 
+                        onClick={handleSelectKey}
+                        className="px-10 py-4 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg transition-all transform hover:scale-105"
+                    >
+                        Select Paid API Key
+                    </button>
+                    <a 
+                        href="https://ai.google.dev/gemini-api/docs/billing" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-slate-500 hover:text-purple-400 transition-colors text-sm"
+                    >
+                        Learn more about API billing
+                    </a>
+                </div>
+                <button 
+                    onClick={() => handleTabChange(Tab.Photo)}
+                    className="mt-12 text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-4"
+                >
+                    Back to Photo Generation
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="w-full max-w-4xl mx-auto">
@@ -426,7 +508,7 @@ const MainApp: React.FC = () => {
                             ) : videoUrl ? (
                                 <VideoResult src={videoUrl} />
                             ) : imageUrls && imageUrls.length > 0 ? (
-                                <div className={`grid ${imageUrls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-2 p-2 w-full h-full`}>
+                                <div className="grid grid-cols-1 gap-2 p-2 w-full h-full">
                                     {imageUrls.map((url, index) => (
                                         <ImageResult key={index} src={url} prompt={prompt} index={index} />
                                     ))}

@@ -1,6 +1,6 @@
 {
   "name": "YKJ-AI",
-  "description": "Generate stunning videos and photos from text prompts using the power of Google's Gemini AI. Bring your creative ideas to life with a simple description.",
+  "description": "Professional AI Video and Photo Generator. Unleash your creativity with Google Gemini models.",
   "requestFramePermissions": [
     "microphone"
   ]

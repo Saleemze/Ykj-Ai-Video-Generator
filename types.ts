@@ -48,7 +48,7 @@ export type MusicTrack = {
   url: string;
 };
 
-// FIX: Added missing User type definition referenced in AuthContext
+// FIX: Added missing User type to fix contexts/AuthContext.tsx import error
 export type User = {
   name: string;
   email: string;
